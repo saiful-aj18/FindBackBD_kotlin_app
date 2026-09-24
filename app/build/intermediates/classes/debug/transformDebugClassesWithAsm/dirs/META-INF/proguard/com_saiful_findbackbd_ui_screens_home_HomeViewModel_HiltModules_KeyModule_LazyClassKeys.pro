@@ -1,0 +1,1 @@
+-keep,allowobfuscation,allowshrinking class com.saiful.findbackbd.ui.screens.home.HomeViewModel

@@ -1,0 +1,9 @@
+com.saiful.findbackbd.app-pngs-0 D:\ISD\FindBackBD_kotlin_app-main\app\build\generated\res\pngs\debug
+com.saiful.findbackbd.app-res-1 D:\ISD\FindBackBD_kotlin_app-main\app\build\generated\res\processDebugGoogleServices
+com.saiful.findbackbd.app-updated_navigation_xml-2 D:\ISD\FindBackBD_kotlin_app-main\app\build\generated\updated_navigation_xml\debug
+com.saiful.findbackbd.app-packageDebugResources-3 D:\ISD\FindBackBD_kotlin_app-main\app\build\intermediates\incremental\debug\packageDebugResources\merged.dir
+com.saiful.findbackbd.app-packageDebugResources-4 D:\ISD\FindBackBD_kotlin_app-main\app\build\intermediates\incremental\debug\packageDebugResources\stripped.dir
+com.saiful.findbackbd.app-debug-5 D:\ISD\FindBackBD_kotlin_app-main\app\build\intermediates\merged_res\debug\mergeDebugResources
+com.saiful.findbackbd.app-debug-6 D:\ISD\FindBackBD_kotlin_app-main\app\src\debug\res
+com.saiful.findbackbd.app-main-7 D:\ISD\FindBackBD_kotlin_app-main\app\src\main\res
+gradleHome-0 C:\Users\mdafz\.gradle

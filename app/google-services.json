@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "592450913582",
+    "project_id": "findbackbd",
+    "storage_bucket": "findbackbd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:592450913582:android:47de67a39f659aa1db66bf",
+        "android_client_info": {
+          "package_name": "com.saiful.findbackbd"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBMOgCvsNnICmmzn4HiRl6qeI0labIoD24"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

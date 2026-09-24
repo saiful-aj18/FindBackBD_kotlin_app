@@ -1,0 +1,19 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.saiful.findbackbd.app-mergeDebugResources-72:/values-v24/values-v24.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\mdafz\\.gradle\\caches\\9.4.1\\transforms\\ff328d8b75077a6203976936f2431fd8\\transformed\\appcompat-1.7.1\\res\\values-v24\\values-v24.xml",
+                    "from": {
+                        "startLines": "2,3",
+                        "startColumns": "4,4",
+                        "startOffsets": "55,212",
+                        "endColumns": "156,134",
+                        "endOffsets": "207,342"
+                    }
+                }
+            ]
+        }
+    ]
+}
