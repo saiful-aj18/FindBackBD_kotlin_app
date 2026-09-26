@@ -1,63 +1,101 @@
 package com.saiful.findbackbd.ui.screens.admin
 
-import android.content.Intent
-import android.net.Uri
-import androidx.activity.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
-import androidx.compose.foundation.shape.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.*
-import androidx.compose.ui.draw.*
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.*
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.*
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.*
-import androidx.navigation.compose.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
-import com.saiful.findbackbd.data.model.*
-import com.saiful.findbackbd.ui.theme.*
-import com.saiful.findbackbd.ui.components.*
-import com.saiful.findbackbd.ui.navigation.*
-import com.saiful.findbackbd.ui.screens.auth.*
-import com.saiful.findbackbd.ui.screens.admin.*
-import com.saiful.findbackbd.ui.screens.home.*
-import com.saiful.findbackbd.ui.screens.search.*
-import com.saiful.findbackbd.ui.screens.report.*
-import com.saiful.findbackbd.ui.screens.details.*
-import com.saiful.findbackbd.ui.screens.chat.*
-import com.saiful.findbackbd.ui.screens.notification.*
-import com.saiful.findbackbd.ui.screens.profile.*
-import com.saiful.findbackbd.ui.screens.settings.*
-import com.saiful.findbackbd.ui.screens.splash.*
-import com.saiful.findbackbd.ui.screens.onboarding.*
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.saiful.findbackbd.ui.components.AppButton
+import com.saiful.findbackbd.ui.components.BackBar
+import com.saiful.findbackbd.ui.screens.home.HomeViewModel
+import com.saiful.findbackbd.ui.theme.TextGray
+import com.saiful.findbackbd.ui.theme.Warn
 
 @Composable
-fun ReportedContentScreen(onBack: () -> Unit) {
-    val rows = remember { mutableStateListOf("Fake report: \"Blue Wallet\" (spam)", "Inappropriate comment on \"iPhone 13\"", "Suspicious user asked for money") }
-    Column(Modifier.fillMaxSize()) {
-        BackBar("Reported Content", onBack)
-        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(rows.toList()) { r ->
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Outlined.Warning, null, tint = Warn); Spacer(Modifier.width(8.dp)); Text(r) }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            AppButton("Dismiss", { rows.remove(r) }, Modifier.weight(1f), outlined = true)
-                            AppButton("Remove", { rows.remove(r) }, Modifier.weight(1f))
+fun ReportedContentScreen(
+    onBack: () -> Unit,
+    vm: HomeViewModel = hiltViewModel()
+) {
+    val flags by vm.flaggedReports.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        BackBar(title = "Reported Content (${flags.size})", onBack = onBack)
+        if (flags.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("All clear! No flagged posts pending review.", color = TextGray)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(flags, key = { it.id }) { flag ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Flag, contentDescription = null, tint = Warn)
+                                Spacer(Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(flag.itemName, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                    Text(
+                                        text = "Reason: ${flag.reason}",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Flagged by ${flag.reporterName} • ${flag.time}",
+                                        fontSize = 11.sp,
+                                        color = TextGray
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                AppButton(
+                                    text = "Dismiss Flag",
+                                    onClick = { vm.dismissFlag(flag.id) },
+                                    modifier = Modifier.weight(1f),
+                                    outlined = true
+                                )
+                                AppButton(
+                                    text = "Remove Post",
+                                    onClick = { vm.removeFlaggedItem(flag) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }

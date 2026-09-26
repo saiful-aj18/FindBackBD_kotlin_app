@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.FindBackBD" parent="android:style/Theme.Material.Light.NoActionBar" />
+    <style name="Theme.FindBackBD" parent="android:Theme.Material.Light.NoActionBar" />
 </resources>

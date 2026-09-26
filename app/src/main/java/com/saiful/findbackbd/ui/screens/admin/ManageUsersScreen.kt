@@ -1,64 +1,95 @@
 package com.saiful.findbackbd.ui.screens.admin
 
-import android.content.Intent
-import android.net.Uri
-import androidx.activity.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
-import androidx.compose.foundation.shape.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.*
-import androidx.compose.ui.draw.*
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.Color.Companion.Green
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.*
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.*
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.*
-import androidx.navigation.compose.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
-import com.saiful.findbackbd.data.model.*
-import com.saiful.findbackbd.ui.theme.*
-import com.saiful.findbackbd.ui.components.*
-import com.saiful.findbackbd.ui.navigation.*
-import com.saiful.findbackbd.ui.screens.auth.*
-import com.saiful.findbackbd.ui.screens.admin.*
-import com.saiful.findbackbd.ui.screens.home.*
-import com.saiful.findbackbd.ui.screens.search.*
-import com.saiful.findbackbd.ui.screens.report.*
-import com.saiful.findbackbd.ui.screens.details.*
-import com.saiful.findbackbd.ui.screens.chat.*
-import com.saiful.findbackbd.ui.screens.notification.*
-import com.saiful.findbackbd.ui.screens.profile.*
-import com.saiful.findbackbd.ui.screens.settings.*
-import com.saiful.findbackbd.ui.screens.splash.*
-import com.saiful.findbackbd.ui.screens.onboarding.*
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.saiful.findbackbd.data.model.Role
+import com.saiful.findbackbd.ui.components.BackBar
+import com.saiful.findbackbd.ui.screens.home.HomeViewModel
+import com.saiful.findbackbd.ui.theme.Danger
+import com.saiful.findbackbd.ui.theme.Green
+import com.saiful.findbackbd.ui.theme.GreenLight
+import com.saiful.findbackbd.ui.theme.TextGray
 
 @Composable
-fun ManageUsersScreen(onBack: () -> Unit) {
-    val blocked = remember { mutableStateMapOf<String, Boolean>() }
-    Column(Modifier.fillMaxSize()) {
-        BackBar("Manage Users", onBack)
-        SampleData.users.forEach { u ->
-            Row(Modifier.fillMaxWidth().padding(16.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(42.dp).background(GreenLight, CircleShape), Alignment.Center) { Text(u.name.take(1), color = Green, fontWeight = FontWeight.Bold) }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) { Text(u.name, fontWeight = FontWeight.Medium); Text(u.email, fontSize = 12.sp, color = TextGray) }
-                Text(if (blocked[u.id] == true) "Blocked" else "Active", fontSize = 12.sp, color = if (blocked[u.id] == true) Danger else Green)
-                Spacer(Modifier.width(8.dp))
-                Switch(blocked[u.id] != true, { blocked[u.id] = !it })
+fun ManageUsersScreen(
+    onBack: () -> Unit,
+    vm: HomeViewModel = hiltViewModel()
+) {
+    val users by vm.allUsers.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        BackBar(title = "Manage Users (${users.size})", onBack = onBack)
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(users, key = { it.id }) { u ->
+                val isBlocked = u.isBlocked
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(GreenLight),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(u.name.ifBlank { "U" }.take(1).uppercase(), color = Green, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(u.name, fontWeight = FontWeight.SemiBold)
+                        Text("${u.email} • ${u.phone}", color = TextGray, fontSize = 12.sp)
+                    }
+                    Text(
+                        text = when {
+                            u.role == Role.ADMIN -> "Admin"
+                            isBlocked -> "Blocked"
+                            else -> "Active"
+                        },
+                        color = if (isBlocked) Danger else Green,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    if (u.role != Role.ADMIN) {
+                        Switch(
+                            checked = !isBlocked,
+                            onCheckedChange = { active -> vm.setUserBlocked(u.id, !active) }
+                        )
+                    }
+                }
+                HorizontalDivider()
             }
         }
     }

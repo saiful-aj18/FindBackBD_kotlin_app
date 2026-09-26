@@ -5,16 +5,18 @@ import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 
-class StorageRepository @Inject constructor(private val storage: FirebaseStorage) {
-    suspend fun uploadItemImage(uid: String, itemId: String, uri: Uri): Result<String> = try {
-        val ref = storage.reference.child("item_images/$uid/$itemId/${System.currentTimeMillis()}.jpg")
+class StorageRepository @Inject constructor(
+    private val storage: FirebaseStorage
+) {
+    suspend fun uploadItemImage(userId: String, itemId: String, uri: Uri): Result<String> = runCatching {
+        val ref = storage.reference.child("items/$userId/$itemId/${System.currentTimeMillis()}.jpg")
         ref.putFile(uri).await()
-        Result.success(ref.downloadUrl.await().toString())
-    } catch (e: Exception) { Result.failure(e) }
+        ref.downloadUrl.await().toString()
+    }
 
-    suspend fun uploadProfileImage(uid: String, uri: Uri): Result<String> = try {
-        val ref = storage.reference.child("profile_images/$uid/profile.jpg")
+    suspend fun uploadProfileImage(userId: String, uri: Uri): Result<String> = runCatching {
+        val ref = storage.reference.child("users/$userId/profile.jpg")
         ref.putFile(uri).await()
-        Result.success(ref.downloadUrl.await().toString())
-    } catch (e: Exception) { Result.failure(e) }
+        ref.downloadUrl.await().toString()
+    }
 }

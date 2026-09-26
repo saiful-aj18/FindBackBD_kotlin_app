@@ -1,60 +1,77 @@
 package com.saiful.findbackbd.ui.screens.admin
 
-import android.content.Intent
-import android.net.Uri
-import androidx.activity.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
-import androidx.compose.foundation.shape.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.*
-import androidx.compose.ui.draw.*
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.*
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.*
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.*
-import androidx.navigation.compose.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
-import com.saiful.findbackbd.data.model.*
-import com.saiful.findbackbd.ui.theme.*
-import com.saiful.findbackbd.ui.components.*
-import com.saiful.findbackbd.ui.navigation.*
-import com.saiful.findbackbd.ui.screens.auth.*
-import com.saiful.findbackbd.ui.screens.admin.*
-import com.saiful.findbackbd.ui.screens.home.*
-import com.saiful.findbackbd.ui.screens.search.*
-import com.saiful.findbackbd.ui.screens.report.*
-import com.saiful.findbackbd.ui.screens.details.*
-import com.saiful.findbackbd.ui.screens.chat.*
-import com.saiful.findbackbd.ui.screens.notification.*
-import com.saiful.findbackbd.ui.screens.profile.*
-import com.saiful.findbackbd.ui.screens.settings.*
-import com.saiful.findbackbd.ui.screens.splash.*
-import com.saiful.findbackbd.ui.screens.onboarding.*
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.saiful.findbackbd.ui.components.BackBar
+import com.saiful.findbackbd.ui.components.ItemCard
+import com.saiful.findbackbd.ui.screens.home.HomeViewModel
+import com.saiful.findbackbd.ui.theme.Danger
+import com.saiful.findbackbd.ui.theme.Green
+import com.saiful.findbackbd.ui.theme.TextGray
 
 @Composable
-fun ManageReportsScreen(onBack: () -> Unit) {
-    val list = remember { mutableStateListOf<LostFoundItem>().apply { addAll(SampleData.items) } }
-    Column(Modifier.fillMaxSize()) {
-        BackBar("Manage Reports", onBack)
-        LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(list, key = { it.id }) { item ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) { ItemCard(item) {} }
-                    IconButton({ list.remove(item) }) { Icon(Icons.Outlined.Delete, null, tint = Danger) } // TODO AdminViewModel -> Firestore delete
+fun ManageReportsScreen(
+    onBack: () -> Unit,
+    onDetails: (String) -> Unit = {},
+    vm: HomeViewModel = hiltViewModel()
+) {
+    val list by vm.items.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        BackBar(title = "Manage Reports (${list.size})", onBack = onBack)
+        if (list.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No reports available.", color = TextGray)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(list, key = { it.id }) { item ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            ItemCard(item = item, onClick = { onDetails(item.id) })
+                        }
+                        IconButton(onClick = { vm.markResolved(item.id, !item.isResolved) }) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Toggle Resolved",
+                                tint = if (item.isResolved) Green else TextGray
+                            )
+                        }
+                        IconButton(onClick = { vm.deleteItem(item.id) }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Danger)
+                        }
+                    }
                 }
             }
         }

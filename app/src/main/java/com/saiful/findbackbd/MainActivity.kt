@@ -1,44 +1,27 @@
 package com.saiful.findbackbd
 
-import android.content.Intent
-import android.net.Uri
-import androidx.activity.*
+import android.os.Bundle
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
-import androidx.compose.foundation.shape.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.*
-import androidx.compose.ui.draw.*
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.*
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.*
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.*
-import androidx.navigation.compose.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
-import com.saiful.findbackbd.data.model.*
-import com.saiful.findbackbd.ui.theme.*
-import com.saiful.findbackbd.ui.components.*
-import com.saiful.findbackbd.ui.navigation.*
-import com.saiful.findbackbd.ui.screens.auth.*
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import com.saiful.findbackbd.ui.navigation.AppNavigation
+import com.saiful.findbackbd.ui.theme.AppSettings
+import com.saiful.findbackbd.ui.theme.FindBackTheme
+import dagger.hilt.android.AndroidEntryPoint
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { FindBackTheme(AppSettings.dark) { Surface(Modifier.fillMaxSize()) { AppNavigation() } } }
+        setContent {
+            FindBackTheme(dark = AppSettings.dark) {
+                Surface(color = MaterialTheme.colorScheme.background) {
+                    AppNavigation()
+                }
+            }
+        }
     }
 }

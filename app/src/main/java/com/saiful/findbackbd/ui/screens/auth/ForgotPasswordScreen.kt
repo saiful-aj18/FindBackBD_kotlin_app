@@ -1,94 +1,132 @@
 package com.saiful.findbackbd.ui.screens.auth
 
-import android.content.Intent
-import android.net.Uri
-import androidx.activity.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
-import androidx.compose.foundation.shape.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.*
-import androidx.compose.ui.draw.*
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.LockReset
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.*
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.*
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.*
-import androidx.navigation.compose.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
-import com.saiful.findbackbd.data.model.*
-import com.saiful.findbackbd.ui.theme.*
-import com.saiful.findbackbd.ui.components.*
-import com.saiful.findbackbd.ui.navigation.*
-import com.saiful.findbackbd.ui.screens.auth.*
-import com.saiful.findbackbd.ui.screens.admin.*
-import com.saiful.findbackbd.ui.screens.home.*
-import com.saiful.findbackbd.ui.screens.search.*
-import com.saiful.findbackbd.ui.screens.report.*
-import com.saiful.findbackbd.ui.screens.details.*
-import com.saiful.findbackbd.ui.screens.chat.*
-import com.saiful.findbackbd.ui.screens.notification.*
-import com.saiful.findbackbd.ui.screens.profile.*
-import com.saiful.findbackbd.ui.screens.settings.*
-import com.saiful.findbackbd.ui.screens.splash.*
-import com.saiful.findbackbd.ui.screens.onboarding.*
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.saiful.findbackbd.ui.components.AppButton
+import com.saiful.findbackbd.ui.components.AppTextField
+import com.saiful.findbackbd.ui.components.BackBar
+import com.saiful.findbackbd.ui.theme.Danger
+import com.saiful.findbackbd.ui.theme.Green
+import com.saiful.findbackbd.ui.theme.TextGray
 
 @Composable
-fun ForgotPasswordScreen(onBack: () -> Unit) {
+fun ForgotPasswordScreen(
+    onBack: () -> Unit,
+    vm: AuthViewModel = hiltViewModel()
+) {
     var email by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var sent by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        BackBar("Reset Password", onBack)
-
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+    ) {
+        BackBar(title = "Reset Password", onBack = onBack)
         if (!sent) {
-            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(Icons.Outlined.LockReset, null, Modifier.size(48.dp), tint = Green)
-                Text(
-                    "Enter the email or phone number associated with your account and we'll send you a link to reset your password.",
-                    color = TextGray, fontSize = 13.sp
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = Icons.Default.LockReset,
+                    contentDescription = null,
+                    tint = Green,
+                    modifier = Modifier.size(64.dp)
                 )
-                Spacer(Modifier.height(4.dp))
-                AppTextField(email, { email = it; error = null }, "Email or Phone", Icons.Outlined.Email)
-                error?.let { Text(it, color = Danger, fontSize = 13.sp) }
-                AppButton("Send Reset Link", {
-                    error = when {
-                        email.isBlank() -> "Please enter your email or phone number."
-                        else -> null
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "Enter the email or phone number associated with your account and we'll reset your password.",
+                    color = TextGray,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(20.dp))
+                AppTextField(
+                    value = email,
+                    onChange = {
+                        email = it
+                        error = null
+                    },
+                    hint = "Email or Phone",
+                    icon = Icons.Default.Email
+                )
+                if (error != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(error ?: "", color = Danger, fontSize = 13.sp)
+                }
+                Spacer(Modifier.height(16.dp))
+                AppButton(
+                    text = "Send Reset Link",
+                    onClick = {
+                        if (email.isBlank()) {
+                            error = "Please enter your email or phone number."
+                        } else {
+                            vm.sendPasswordReset(email) {
+                                sent = true
+                            }
+                        }
                     }
-                    // TODO: FirebaseAuth.sendPasswordResetEmail(email) or phone-based reset flow
-                    if (error == null) sent = true
-                })
-                TextButton(onBack, Modifier.align(Alignment.CenterHorizontally)) { Text("Back to Login") }
+                )
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onBack) {
+                    Text("Back to Login", color = Green)
+                }
             }
         } else {
             Column(
-                Modifier.fillMaxWidth().padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(Icons.Outlined.MarkEmailRead, null, Modifier.size(56.dp), tint = Green)
-                Text("Check Your Inbox", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "We've sent a password reset link to $email. Follow the instructions in the email to set a new password.",
-                    color = TextGray, fontSize = 13.sp, textAlign = TextAlign.Center
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    tint = Green,
+                    modifier = Modifier.size(64.dp)
                 )
+                Spacer(Modifier.height(12.dp))
+                Text("Password Reset Ready", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
-                AppButton("Back to Login", onBack)
-                TextButton({ sent = false; email = "" }) { Text("Didn't receive it? Try again") }
+                Text(
+                    text = "Reset instructions have been processed for $email (local temporary password set to 123456).",
+                    color = TextGray,
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(20.dp))
+                AppButton(text = "Back to Login", onClick = onBack)
+                TextButton(onClick = { sent = false }) {
+                    Text("Didn't receive it? Try again", color = Green)
+                }
             }
         }
     }

@@ -1,7 +1,0 @@
-PLACE YOUR REAL google-services.json HERE.
-
-Firebase Console → Project settings → Your apps → Android → Download google-services.json
-Copy it to:
-FindBackBD\app\google-services.json
-
-Do not rename it to google-services.json.txt.
