@@ -79,7 +79,7 @@ fun AppNavigation() {
         NavHost(
             navController = nav,
             startDestination = Routes.SPLASH,
-            modifier = Modifier.padding(pad)
+            modifier = if (current == Routes.SPLASH || current == null) Modifier else Modifier.padding(pad)
         ) {
             composable(Routes.SPLASH) {
                 SplashScreen(
