@@ -1,4 +1,3 @@
-
 # 🔎 FindBack BD
 
 **FindBack BD** is a Kotlin-based Android application designed to help users report, search, match, and recover lost and found belongings in Bangladesh.
@@ -839,6 +838,3 @@ Future versions of FindBack BD can include:
 
 This project is developed for educational and academic purposes.
 
-```
-
-```
