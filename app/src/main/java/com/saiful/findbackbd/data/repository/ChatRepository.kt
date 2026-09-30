@@ -1,22 +1,26 @@
 package com.saiful.findbackbd.data.repository
 
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.saiful.findbackbd.data.local.ChatThreadEntity
 import com.saiful.findbackbd.data.local.ItemDao
 import com.saiful.findbackbd.data.local.MessageEntity
-import com.saiful.findbackbd.data.local.NotificationEntity
 import com.saiful.findbackbd.data.local.toEntity
 import com.saiful.findbackbd.data.model.ChatThread
 import com.saiful.findbackbd.data.model.Message
-import com.saiful.findbackbd.data.model.SampleData
+import com.saiful.findbackbd.data.remote.toChatThreadOrNull
+import com.saiful.findbackbd.data.remote.toMessageOrNull
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -25,6 +29,7 @@ import javax.inject.Singleton
 
 @Singleton
 class ChatRepository @Inject constructor(
+    private val auth: FirebaseAuth,
     private val db: FirebaseFirestore,
     private val itemDao: ItemDao
 ) {
@@ -34,19 +39,62 @@ class ChatRepository @Inject constructor(
         list.map { it.toDomain() }
     }
 
+    private var chatsListener: ListenerRegistration? = null
+
     init {
-        scope.launch {
-            if (itemDao.countThreads() == 0) {
-                itemDao.upsertAllThreads(SampleData.initialThreads.map { it.toEntity() })
-            }
-            if (itemDao.countMessages() == 0) {
-                itemDao.insertAllMessages(SampleData.messages.map { it.toEntity() })
+        startChatsRealtimeListener()
+        runCatching {
+            auth.addAuthStateListener {
+                startChatsRealtimeListener()
             }
         }
     }
 
-    fun messages(chatId: String): Flow<List<Message>> =
-        itemDao.getMessagesForChat(chatId).map { list -> list.map { it.toDomain() } }
+    private fun startChatsRealtimeListener() {
+        chatsListener?.remove()
+        chatsListener = runCatching {
+            db.collection("chats").addSnapshotListener { snap, err ->
+                if (err != null || snap == null) return@addSnapshotListener
+                val remoteThreads = snap.documents.mapNotNull { it.toChatThreadOrNull() }
+                if (remoteThreads.isNotEmpty()) {
+                    scope.launch {
+                        itemDao.upsertAllThreads(remoteThreads.map { it.toEntity() })
+                    }
+                }
+            }
+        }.getOrNull()
+    }
+
+    fun messages(chatId: String): Flow<List<Message>> = callbackFlow {
+        // Emit cached local messages immediately and keep observing Room + Firestore
+        val roomJob = launch {
+            itemDao.getMessagesForChat(chatId).collect { list ->
+                trySend(list.map { it.toDomain() })
+            }
+        }
+
+        val firestoreReg = runCatching {
+            db.collection("chats").document(chatId).collection("messages")
+                .addSnapshotListener { snap, err ->
+                    if (err != null || snap == null) return@addSnapshotListener
+                    val currentUid = runCatching { auth.currentUser?.uid }.getOrNull()
+                    val currentName = runCatching { auth.currentUser?.displayName }.getOrNull()
+                    val remoteMsgs = snap.documents
+                        .mapNotNull { it.toMessageOrNull(chatId, currentUid, currentName) }
+                        .sortedBy { it.timestamp }
+                    if (remoteMsgs.isNotEmpty()) {
+                        scope.launch {
+                            itemDao.insertAllMessages(remoteMsgs.map { it.toEntity() })
+                        }
+                    }
+                }
+        }.getOrNull()
+
+        awaitClose {
+            firestoreReg?.remove()
+            roomJob.cancel()
+        }
+    }
 
     suspend fun getOrCreateThread(
         participantName: String,
@@ -74,37 +122,30 @@ class ChatRepository @Inject constructor(
             return existingById.toDomain()
         }
 
-        val now = System.currentTimeMillis()
-        val timeLabel = formatCurrentTime(now)
-        val initialGreeting = if (itemName.isNotBlank()) {
-            "Hi! Feel free to message me regarding \"$itemName\"."
-        } else {
-            "Hello! How can I help you with your lost or found report?"
+        // Check Firestore before creating a new thread
+        val remoteDoc = runCatching {
+            withTimeoutOrNull(3000L) { db.collection("chats").document(chatId).get().await() }
+        }.getOrNull()
+        val remoteThread = remoteDoc?.toChatThreadOrNull()
+        if (remoteThread != null) {
+            itemDao.upsertThread(remoteThread.toEntity())
+            return remoteThread
         }
 
+        val now = System.currentTimeMillis()
+        val timeLabel = formatCurrentTime(now)
         val newThread = ChatThreadEntity(
             id = chatId,
             participantName = cleanName,
             participantPhone = participantPhone,
             itemId = itemId,
             itemName = itemName,
-            lastMessage = initialGreeting,
+            lastMessage = if (itemName.isNotBlank()) "Chat regarding $itemName" else "Start a conversation",
             lastTime = timeLabel,
             unreadCount = 0,
             updatedAt = now
         )
         itemDao.upsertThread(newThread)
-        itemDao.insertMessage(
-            MessageEntity(
-                id = "msg_init_$now",
-                chatId = chatId,
-                senderName = cleanName,
-                text = initialGreeting,
-                time = timeLabel,
-                mine = false,
-                timestamp = now
-            )
-        )
         scope.launch {
             runCatching { db.collection("chats").document(chatId).set(newThread.toDomain()).await() }
         }
@@ -129,6 +170,7 @@ class ChatRepository @Inject constructor(
 
         val now = System.currentTimeMillis()
         val timeLabel = formatCurrentTime(now)
+        val senderId = runCatching { auth.currentUser?.uid }.getOrNull().orEmpty()
         val outgoing = Message(
             id = "msg_$now",
             chatId = chatId,
@@ -148,59 +190,29 @@ class ChatRepository @Inject constructor(
             participantPhone = existingThread?.participantPhone ?: participantPhone,
             itemId = existingThread?.itemId?.ifBlank { itemId } ?: itemId,
             itemName = existingThread?.itemName?.ifBlank { itemName } ?: itemName,
-            lastMessage = "You: $cleanText",
+            lastMessage = cleanText,
             lastTime = timeLabel,
             unreadCount = 0,
             updatedAt = now
         )
         itemDao.upsertThread(updatedThread)
 
-        scope.launch {
-            runCatching {
+        val msgMap = mapOf(
+            "id" to outgoing.id,
+            "chatId" to chatId,
+            "senderId" to senderId,
+            "senderName" to outgoing.senderName,
+            "text" to outgoing.text,
+            "time" to outgoing.time,
+            "mine" to true,
+            "timestamp" to outgoing.timestamp
+        )
+
+        runCatching {
+            withTimeoutOrNull(5000L) {
                 db.collection("chats").document(chatId).set(updatedThread.toDomain()).await()
-                db.collection("chats").document(chatId).collection("messages").document(outgoing.id).set(outgoing).await()
-            }
-        }
-
-        scope.launch {
-            delay(1100L)
-            val replyNow = System.currentTimeMillis()
-            val replyTime = formatCurrentTime(replyNow)
-            val targetParticipant = updatedThread.participantName.ifBlank { participantName }
-            val replyText = buildContextualReply(cleanText, targetParticipant, updatedThread.itemName)
-
-            val replyMsg = MessageEntity(
-                id = "msg_reply_$replyNow",
-                chatId = chatId,
-                senderName = targetParticipant,
-                text = replyText,
-                time = replyTime,
-                mine = false,
-                timestamp = replyNow
-            )
-            itemDao.insertMessage(replyMsg)
-            val afterReplyThread = updatedThread.copy(
-                lastMessage = replyText,
-                lastTime = replyTime,
-                unreadCount = 0,
-                updatedAt = replyNow
-            )
-            itemDao.upsertThread(afterReplyThread)
-            itemDao.insertNotification(
-                NotificationEntity(
-                    id = "notif_chat_$replyNow",
-                    title = "New Message from $targetParticipant",
-                    body = replyText,
-                    time = replyTime,
-                    type = "message",
-                    itemId = updatedThread.itemId,
-                    isRead = false,
-                    timestamp = replyNow
-                )
-            )
-            runCatching {
-                db.collection("chats").document(chatId).set(afterReplyThread.toDomain()).await()
-                db.collection("chats").document(chatId).collection("messages").document(replyMsg.id).set(replyMsg.toDomain()).await()
+                db.collection("chats").document(chatId).collection("messages")
+                    .document(outgoing.id).set(msgMap).await()
             }
         }
     }
@@ -208,26 +220,5 @@ class ChatRepository @Inject constructor(
     private fun formatCurrentTime(timestamp: Long): String {
         val sdf = SimpleDateFormat("hh:mm a", Locale.US)
         return sdf.format(Date(timestamp))
-    }
-
-    private fun buildContextualReply(
-        userMessage: String,
-        participantName: String,
-        itemName: String
-    ): String {
-        val lower = userMessage.lowercase(Locale.ROOT)
-        val subject = if (itemName.isNotBlank()) "\"$itemName\"" else "the item"
-        return when {
-            lower.contains("where") || lower.contains("location") || lower.contains("meet") ->
-                "We can meet at a safe public spot near the reported location to verify and hand over $subject."
-            lower.contains("phone") || lower.contains("call") || lower.contains("number") || lower.contains("contact") ->
-                "Sure! You can call me directly using the Call button at the top of this chat."
-            lower.contains("available") || lower.contains("still") || lower.contains("found") ->
-                "Yes, $subject is still with me. Can you share one identifying detail to confirm ownership?"
-            lower.contains("thank") ->
-                "You're very welcome! Glad we could connect on FindBack BD."
-            else ->
-                "Thanks for your message! I'm available today to coordinate regarding $subject."
-        }
     }
 }

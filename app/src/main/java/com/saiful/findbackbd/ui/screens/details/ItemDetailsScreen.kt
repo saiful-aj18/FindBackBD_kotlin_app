@@ -77,8 +77,9 @@ fun ItemDetailsScreen(
     vm: HomeViewModel = hiltViewModel()
 ) {
     val allItems by vm.items.collectAsState()
+    val observedItem by vm.observeItem(id).collectAsState(initial = null)
     val currentUser by vm.currentUser.collectAsState()
-    val item = allItems.find { it.id == id } ?: SampleData.items.find { it.id == id } ?: allItems.firstOrNull()
+    val item = observedItem ?: allItems.find { it.id == id } ?: allItems.firstOrNull()
     val ctx = LocalContext.current
 
     var showFlagDialog by remember { mutableStateOf(false) }

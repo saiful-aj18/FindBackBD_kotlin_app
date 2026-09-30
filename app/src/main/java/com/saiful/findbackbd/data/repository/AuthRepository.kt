@@ -2,13 +2,15 @@ package com.saiful.findbackbd.data.repository
 
 import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.saiful.findbackbd.data.local.ItemDao
-import com.saiful.findbackbd.data.local.NotificationEntity
 import com.saiful.findbackbd.data.local.toEntity
 import com.saiful.findbackbd.data.model.Role
-import com.saiful.findbackbd.data.model.SampleData
 import com.saiful.findbackbd.data.model.User
+import com.saiful.findbackbd.data.remote.toFirestoreMap
+import com.saiful.findbackbd.data.remote.toUserOrNull
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,15 +44,11 @@ class AuthRepository @Inject constructor(
         list.map { it.toDomain() }
     }
 
+    private var usersListener: ListenerRegistration? = null
+
     init {
+        // Restore cached user immediately if available, then verify with Firebase Auth & Firestore
         scope.launch {
-            if (itemDao.countUsers() == 0) {
-                val seeded = SampleData.users.map { user ->
-                    val pwd = if (user.role == Role.ADMIN) "admin123" else "123456"
-                    user.toEntity(password = pwd)
-                }
-                itemDao.upsertAllUsers(seeded)
-            }
             val savedId = prefs.getString("logged_in_user_id", null)
             if (!savedId.isNullOrBlank()) {
                 val localUser = itemDao.getUserById(savedId)?.toDomain()
@@ -58,21 +56,82 @@ class AuthRepository @Inject constructor(
                     _currentUser.value = localUser
                 }
             }
-            // Background sync of remote Firestore users into Room
-            runCatching {
-                val snap = withTimeoutOrNull(4000L) { db.collection("users").get().await() }
-                val remoteUsers = snap?.toObjects(User::class.java).orEmpty()
-                remoteUsers.forEach { remoteUser ->
-                    if (remoteUser.id.isNotBlank()) {
-                        val existing = itemDao.getUserById(remoteUser.id)
-                        itemDao.upsertUser(remoteUser.toEntity(password = existing?.password ?: "123456"))
+            val fbUser = runCatching { auth.currentUser }.getOrNull()
+            if (fbUser != null) {
+                syncCurrentFirebaseUser(fbUser.uid, fbUser.email.orEmpty(), fbUser.displayName.orEmpty())
+            }
+            startUsersRealtimeListener()
+        }
+
+        runCatching {
+            auth.addAuthStateListener { firebaseAuth ->
+                val fbUser = firebaseAuth.currentUser
+                if (fbUser != null) {
+                    scope.launch {
+                        syncCurrentFirebaseUser(fbUser.uid, fbUser.email.orEmpty(), fbUser.displayName.orEmpty())
+                        startUsersRealtimeListener()
                     }
                 }
             }
         }
     }
 
-    fun currentUid(): String? = _currentUser.value?.id ?: runCatching { auth.currentUser?.uid }.getOrNull()
+    private fun startUsersRealtimeListener() {
+        usersListener?.remove()
+        usersListener = runCatching {
+            db.collection("users").addSnapshotListener { snap, err ->
+                if (err != null || snap == null) return@addSnapshotListener
+                val remoteUsers = snap.documents.mapNotNull { it.toUserOrNull() }
+                if (remoteUsers.isNotEmpty()) {
+                    scope.launch {
+                        remoteUsers.forEach { u ->
+                            val existing = itemDao.getUserById(u.id)
+                            itemDao.upsertUser(u.toEntity(password = existing?.password ?: ""))
+                        }
+                        val activeId = _currentUser.value?.id ?: auth.currentUser?.uid
+                        if (!activeId.isNullOrBlank()) {
+                            remoteUsers.find { it.id == activeId }?.let { freshUser ->
+                                _currentUser.value = freshUser
+                            }
+                        }
+                    }
+                }
+            }
+        }.getOrNull()
+    }
+
+    private suspend fun syncCurrentFirebaseUser(uid: String, email: String, displayName: String): User {
+        val docUser = runCatching {
+            val doc = withTimeoutOrNull(6000L) { db.collection("users").document(uid).get().await() }
+            doc?.toUserOrNull()
+        }.getOrNull() ?: runCatching {
+            if (email.isNotBlank()) {
+                val query = withTimeoutOrNull(6000L) {
+                    db.collection("users").whereEqualTo("email", email).get().await()
+                }
+                query?.documents?.firstOrNull()?.toUserOrNull()
+            } else null
+        }.getOrNull()
+
+        val resolvedUser = docUser ?: itemDao.getUserById(uid)?.toDomain() ?: User(
+            id = uid,
+            name = displayName.ifBlank { deriveNameFromInput(email) },
+            email = email,
+            phone = "+880 1712 345678",
+            role = if (email.equals("admin@findback.bd", ignoreCase = true)) Role.ADMIN else Role.USER
+        ).also { created ->
+            runCatching {
+                db.collection("users").document(uid).set(created.toFirestoreMap()).await()
+            }
+        }
+
+        itemDao.upsertUser(resolvedUser.toEntity())
+        saveSession(resolvedUser)
+        _currentUser.value = resolvedUser
+        return resolvedUser
+    }
+
+    fun currentUid(): String? = runCatching { auth.currentUser?.uid }.getOrNull() ?: _currentUser.value?.id
 
     suspend fun register(
         name: String,
@@ -84,18 +143,17 @@ class AuthRepository @Inject constructor(
         val cleanName = name.trim()
         val cleanPhone = phone.trim().ifBlank { "+880 1700 000000" }
 
-        val existing = itemDao.findUserByEmailOrPhone(cleanEmail)
-        if (existing != null) {
-            error("An account with this email or phone already exists. Please login.")
+        // 1. Register user in Firebase Authentication
+        val authResult = auth.createUserWithEmailAndPassword(cleanEmail, password).await()
+        val fbUser = authResult.user ?: error("Firebase user creation failed")
+        runCatching {
+            val profileUpdates = UserProfileChangeRequest.Builder()
+                .setDisplayName(cleanName)
+                .build()
+            fbUser.updateProfile(profileUpdates).await()
         }
 
-        val firebaseUid = withTimeoutOrNull(2500L) {
-            runCatching {
-                auth.createUserWithEmailAndPassword(cleanEmail, password).await().user?.uid
-            }.getOrNull()
-        }
-
-        val uid = firebaseUid ?: "user_${System.currentTimeMillis()}"
+        val uid = fbUser.uid
         val role = if (cleanEmail.equals("admin@findback.bd", ignoreCase = true)) Role.ADMIN else Role.USER
         val user = User(
             id = uid,
@@ -106,24 +164,16 @@ class AuthRepository @Inject constructor(
             isBlocked = false
         )
 
+        // 2. Save user document in Firebase Firestore `users/{uid}`
+        runCatching {
+            db.collection("users").document(uid).set(user.toFirestoreMap()).await()
+        }
+
+        // 3. Cache in local Room DB and set active session
         itemDao.upsertUser(user.toEntity(password = password))
         saveSession(user)
         _currentUser.value = user
-
-        scope.launch {
-            runCatching { db.collection("users").document(uid).set(user).await() }
-        }
-
-        itemDao.insertNotification(
-            NotificationEntity(
-                id = "notif_welcome_${System.currentTimeMillis()}",
-                title = "Welcome to FindBack BD, ${user.name}!",
-                body = "Your account (${user.email}) is active. You can now report lost or found items and chat directly.",
-                time = "Just now",
-                type = "welcome",
-                timestamp = System.currentTimeMillis()
-            )
-        )
+        startUsersRealtimeListener()
 
         user
     }
@@ -134,14 +184,38 @@ class AuthRepository @Inject constructor(
         requestedRole: Role = Role.USER
     ): Result<User> = runCatching {
         val cleanInput = emailOrPhone.trim()
-        val isAdminCreds = cleanInput.equals("admin@findback.bd", ignoreCase = true) && password == "admin123"
+        val isAdminDemo = cleanInput.equals("admin@findback.bd", ignoreCase = true) && password == "admin123"
 
-        if (requestedRole == Role.ADMIN) {
-            val existingAdmin = itemDao.findUserByEmailOrPhone(cleanInput)
-            if (!isAdminCreds && (existingAdmin == null || existingAdmin.role != Role.ADMIN.name || existingAdmin.password != password)) {
-                error("Invalid admin credentials. Use admin@findback.bd / admin123")
+        // 1. First authenticate against real Firebase Authentication
+        val firebaseSignInResult = runCatching {
+            auth.signInWithEmailAndPassword(cleanInput, password).await()
+        }
+
+        if (firebaseSignInResult.isSuccess) {
+            val fbUser = firebaseSignInResult.getOrNull()?.user ?: error("Firebase login failed")
+            val user = syncCurrentFirebaseUser(
+                uid = fbUser.uid,
+                email = fbUser.email ?: cleanInput,
+                displayName = fbUser.displayName.orEmpty()
+            )
+            if (user.isBlocked) {
+                auth.signOut()
+                error("This account has been blocked by an administrator.")
             }
-            val adminUser = existingAdmin?.toDomain() ?: User(
+            if (requestedRole == Role.ADMIN && user.role != Role.ADMIN && !isAdminDemo) {
+                error("This account does not have Admin privileges.")
+            }
+            val finalUser = if (requestedRole == Role.ADMIN) user.copy(role = Role.ADMIN) else user
+            itemDao.upsertUser(finalUser.toEntity(password = password))
+            saveSession(finalUser)
+            _currentUser.value = finalUser
+            startUsersRealtimeListener()
+            return@runCatching finalUser
+        }
+
+        // 2. Support built-in Demo Admin login if not yet created in Firebase Auth
+        if (requestedRole == Role.ADMIN && isAdminDemo) {
+            val adminUser = User(
                 id = "admin_1",
                 name = "FindBack Admin",
                 email = "admin@findback.bd",
@@ -151,53 +225,57 @@ class AuthRepository @Inject constructor(
             itemDao.upsertUser(adminUser.toEntity(password = password))
             saveSession(adminUser)
             _currentUser.value = adminUser
+            startUsersRealtimeListener()
             return@runCatching adminUser
         }
 
-        if (isAdminCreds) {
-            error("This is an administrator account. Please switch to Admin Login.")
-        }
+        // 3. Also check if user document exists directly in Firestore `users` collection or local Room
+        val firestoreUserDoc = runCatching {
+            val byEmail = withTimeoutOrNull(5000L) {
+                db.collection("users").whereEqualTo("email", cleanInput).get().await()
+            }?.documents?.firstOrNull()
+            val byPhone = if (byEmail == null) {
+                withTimeoutOrNull(5000L) {
+                    db.collection("users").whereEqualTo("phone", cleanInput).get().await()
+                }?.documents?.firstOrNull()
+            } else null
+            (byEmail ?: byPhone)?.toUserOrNull()
+        }.getOrNull()
 
-        val existingEntity = itemDao.findUserByEmailOrPhone(cleanInput)
-        if (existingEntity != null) {
-            if (existingEntity.isBlocked) {
+        if (firestoreUserDoc != null) {
+            if (firestoreUserDoc.isBlocked) {
                 error("This account has been blocked by an administrator.")
             }
-            if (existingEntity.role == Role.ADMIN.name) {
-                error("This is an administrator account. Please switch to Admin Login.")
-            }
-            if (existingEntity.password.isNotBlank() && existingEntity.password != password) {
-                error("Incorrect password for $cleanInput. Please try again.")
-            }
-            val domainUser = existingEntity.toDomain()
+            itemDao.upsertUser(firestoreUserDoc.toEntity(password = password))
+            saveSession(firestoreUserDoc)
+            _currentUser.value = firestoreUserDoc
+            startUsersRealtimeListener()
+            return@runCatching firestoreUserDoc
+        }
+
+        val localEntity = itemDao.findUserByEmailOrPhone(cleanInput)
+        if (localEntity != null && (localEntity.password == password || localEntity.password.isBlank())) {
+            val domainUser = localEntity.toDomain()
             saveSession(domainUser)
             _currentUser.value = domainUser
-            scope.launch {
-                runCatching { auth.signInWithEmailAndPassword(cleanInput, password).await() }
-            }
             return@runCatching domainUser
         }
 
-        val derivedName = deriveNameFromInput(cleanInput)
-        val isPhoneInput = cleanInput.all { it.isDigit() || it == '+' || it == '-' || it == ' ' }
-        val newUser = User(
-            id = "user_${System.currentTimeMillis()}",
-            name = derivedName,
-            email = if (isPhoneInput) "${derivedName.lowercase(Locale.ROOT).replace(" ", ".")}@findback.bd" else cleanInput,
-            phone = if (isPhoneInput) cleanInput else "+880 1712 345678",
-            role = Role.USER,
-            isBlocked = false
-        )
-        itemDao.upsertUser(newUser.toEntity(password = password))
-        saveSession(newUser)
-        _currentUser.value = newUser
-        scope.launch {
-            runCatching { db.collection("users").document(newUser.id).set(newUser).await() }
-        }
-        newUser
+        // Surface the real Firebase Auth error so user knows why login failed
+        val fbError = firebaseSignInResult.exceptionOrNull()?.localizedMessage
+            ?: "Login failed. Please check your email and password or register a new account."
+        error(fbError)
     }
 
     suspend fun loginWithGoogle(emailHint: String = ""): Result<User> = runCatching {
+        val fbCurrent = auth.currentUser
+        if (fbCurrent != null) {
+            return@runCatching syncCurrentFirebaseUser(
+                uid = fbCurrent.uid,
+                email = fbCurrent.email.orEmpty(),
+                displayName = fbCurrent.displayName.orEmpty()
+            )
+        }
         val targetEmail = emailHint.trim().ifBlank { "user.google@gmail.com" }
         val existing = itemDao.findUserByEmailOrPhone(targetEmail)
         val user = existing?.toDomain() ?: User(
@@ -209,11 +287,8 @@ class AuthRepository @Inject constructor(
         ).also {
             itemDao.upsertUser(it.toEntity(password = "google_auth"))
             scope.launch {
-                runCatching { db.collection("users").document(it.id).set(it).await() }
+                runCatching { db.collection("users").document(it.id).set(it.toFirestoreMap()).await() }
             }
-        }
-        if (user.isBlocked) {
-            error("This account has been blocked by an administrator.")
         }
         saveSession(user)
         _currentUser.value = user
@@ -228,25 +303,32 @@ class AuthRepository @Inject constructor(
             email = email.trim().ifBlank { current.email },
             phone = phone.trim().ifBlank { current.phone }
         )
-        itemDao.upsertUser(updated.toEntity(password = existingEntity?.password ?: "123456"))
+        itemDao.upsertUser(updated.toEntity(password = existingEntity?.password ?: ""))
         saveSession(updated)
         _currentUser.value = updated
-        scope.launch {
-            runCatching { db.collection("users").document(updated.id).set(updated).await() }
+        runCatching {
+            withTimeoutOrNull(4000L) {
+                db.collection("users").document(updated.id).set(updated.toFirestoreMap()).await()
+            }
         }
         updated
     }
 
     suspend fun changePassword(currentPassword: String, newPassword: String): Result<Unit> = runCatching {
-        val current = _currentUser.value ?: error("Not logged in")
-        val entity = itemDao.getUserById(current.id) ?: error("Account not found")
-        if (entity.password != currentPassword) {
-            error("Current password does not match.")
-        }
         if (newPassword.length < 6) {
             error("New password must be at least 6 characters.")
         }
-        itemDao.upsertUser(entity.copy(password = newPassword))
+        val fbUser = auth.currentUser
+        if (fbUser != null) {
+            runCatching { fbUser.updatePassword(newPassword).await() }
+        }
+        val current = _currentUser.value
+        if (current != null) {
+            val entity = itemDao.getUserById(current.id)
+            if (entity != null) {
+                itemDao.upsertUser(entity.copy(password = newPassword))
+            }
+        }
     }
 
     suspend fun setUserBlocked(userId: String, blocked: Boolean) {
@@ -254,7 +336,7 @@ class AuthRepository @Inject constructor(
         val updated = entity.copy(isBlocked = blocked)
         itemDao.upsertUser(updated)
         scope.launch {
-            runCatching { db.collection("users").document(userId).set(updated.toDomain()).await() }
+            runCatching { db.collection("users").document(userId).set(updated.toDomain().toFirestoreMap()).await() }
         }
         if (_currentUser.value?.id == userId && blocked) {
             logout()
@@ -263,17 +345,15 @@ class AuthRepository @Inject constructor(
 
     suspend fun reset(email: String): Result<Unit> = runCatching {
         val clean = email.trim()
-        val existing = itemDao.findUserByEmailOrPhone(clean)
-        if (existing != null) {
-            itemDao.upsertUser(existing.copy(password = "123456"))
-        }
-        scope.launch {
-            runCatching { auth.sendPasswordResetEmail(clean).await() }
-        }
+        auth.sendPasswordResetEmail(clean).await()
     }
 
     suspend fun getCurrentUser(): User? {
         _currentUser.value?.let { return it }
+        val fbUser = runCatching { auth.currentUser }.getOrNull()
+        if (fbUser != null) {
+            return syncCurrentFirebaseUser(fbUser.uid, fbUser.email.orEmpty(), fbUser.displayName.orEmpty())
+        }
         val savedId = prefs.getString("logged_in_user_id", null)
         if (!savedId.isNullOrBlank()) {
             val local = itemDao.getUserById(savedId)?.toDomain()
@@ -302,7 +382,7 @@ class AuthRepository @Inject constructor(
             .replace('_', ' ')
             .replace('-', ' ')
             .trim()
-        if (raw.isBlank()) return "Community Member"
+        if (raw.isBlank()) return "User"
         return raw.split(Regex("\\s+"))
             .filter { it.isNotBlank() }
             .joinToString(" ") { part ->

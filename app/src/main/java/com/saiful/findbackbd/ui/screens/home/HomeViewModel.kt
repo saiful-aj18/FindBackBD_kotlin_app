@@ -7,7 +7,6 @@ import com.saiful.findbackbd.data.model.ChatThread
 import com.saiful.findbackbd.data.model.FlaggedReport
 import com.saiful.findbackbd.data.model.LostFoundItem
 import com.saiful.findbackbd.data.model.Message
-import com.saiful.findbackbd.data.model.SampleData
 import com.saiful.findbackbd.data.model.User
 import com.saiful.findbackbd.data.repository.AuthRepository
 import com.saiful.findbackbd.data.repository.ChatRepository
@@ -32,33 +31,35 @@ class HomeViewModel @Inject constructor(
     val items: StateFlow<List<LostFoundItem>> = repo.itemsFlow.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = SampleData.items
+        initialValue = emptyList()
     )
+
+    val isSyncing: StateFlow<Boolean> = repo.isSyncing
 
     val currentUser: StateFlow<User?> = authRepo.currentUser
 
     val allUsers: StateFlow<List<User>> = authRepo.allUsers.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = SampleData.users
+        initialValue = emptyList()
     )
 
     val notifications: StateFlow<List<AppNotification>> = repo.notificationsFlow.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = SampleData.notifications
+        initialValue = emptyList()
     )
 
     val flaggedReports: StateFlow<List<FlaggedReport>> = repo.flaggedReportsFlow.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = SampleData.initialFlaggedReports
+        initialValue = emptyList()
     )
 
     val chatThreads: StateFlow<List<ChatThread>> = chatRepo.threadsFlow.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = SampleData.initialThreads
+        initialValue = emptyList()
     )
 
     private val _searchQuery = MutableStateFlow("")
@@ -71,7 +72,10 @@ class HomeViewModel @Inject constructor(
     val selectedStatus: StateFlow<String> = _selectedStatus.asStateFlow()
 
     fun load() {
-        // Reactive Room Flows automatically emit latest items
+        repo.startRealtimeListeners()
+        viewModelScope.launch {
+            repo.syncFromFirestore()
+        }
     }
 
     fun setSearchQuery(query: String) {

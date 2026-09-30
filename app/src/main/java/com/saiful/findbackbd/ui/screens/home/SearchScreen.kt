@@ -23,11 +23,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -36,6 +38,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -68,9 +71,14 @@ fun HomeScreen(
     vm: HomeViewModel = hiltViewModel()
 ) {
     val allItems by vm.items.collectAsState()
+    val isSyncing by vm.isSyncing.collectAsState()
     val currentUser by vm.currentUser.collectAsState()
     val notifications by vm.notifications.collectAsState()
     val unreadNotifCount = notifications.count { !it.isRead }
+
+    LaunchedEffect(currentUser?.id) {
+        vm.load()
+    }
 
     var activeCategory by remember { mutableStateOf("All") }
     var activeTab by remember { mutableStateOf("All") }
@@ -124,10 +132,21 @@ fun HomeScreen(
                         color = Green
                     )
                     Text(
-                        text = if (currentUser != null) "Welcome, ${currentUser?.name}" else "Community Lost & Found",
-                        fontSize = 12.sp,
+                        text = if (currentUser != null) "Logged in as ${currentUser?.name} (${currentUser?.email})" else "Connected to Firebase",
+                        fontSize = 11.sp,
                         color = TextGray
                     )
+                }
+                IconButton(onClick = { vm.load() }) {
+                    if (isSyncing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = Green
+                        )
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = "Sync Firebase", tint = Green)
+                    }
                 }
                 IconButton(onClick = onNotifs) {
                     BadgedBox(
@@ -233,7 +252,7 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (activeCategory == "All") "Recent Reports (${filteredItems.size})" else "$activeCategory Reports (${filteredItems.size})",
+                        text = if (activeCategory == "All") "Firebase Reports (${filteredItems.size})" else "$activeCategory Reports (${filteredItems.size})",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
@@ -270,11 +289,19 @@ fun HomeScreen(
                         .padding(vertical = 32.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "No reports match this filter yet. Tap 'Report Now' to post one!",
-                        color = TextGray,
-                        fontSize = 14.sp
-                    )
+                    if (isSyncing) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Green)
+                            Spacer(Modifier.height(8.dp))
+                            Text("Loading items from Firebase Firestore...", color = TextGray, fontSize = 13.sp)
+                        }
+                    } else {
+                        Text(
+                            text = "No reports found in Firebase for this filter. Tap 'Report Now' to publish one!",
+                            color = TextGray,
+                            fontSize = 14.sp
+                        )
+                    }
                 }
             }
         } else {
